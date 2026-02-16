@@ -27,9 +27,9 @@ public class JobRepository : IJobRepository
             .ToListAsync();
     }
 
-    public Task<JobApplication?> GetJobByIdAsync(Guid id)
+    public async Task<JobApplication?> GetJobByIdAsync(Guid id)
     {
-        throw new NotImplementedException();
+        return await _jobContext.Jobs.FirstOrDefaultAsync(job => job.Id == id);
     }
 
     public async Task InsertJobAsync(JobApplication job)
@@ -38,8 +38,8 @@ public class JobRepository : IJobRepository
         await _jobContext.SaveChangesAsync();
     }
 
-    public Task UpdateJobAsync(JobApplication job)
+    public async Task UpdateJobAsync(JobApplication job)
     {
-        throw new NotImplementedException();
+        await _jobContext.SaveChangesAsync();
     }
 }
