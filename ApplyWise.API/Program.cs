@@ -1,8 +1,10 @@
 using ApplyWise.Application.Interfaces;
 using ApplyWise.Application.Services;
+using ApplyWise.Application.Validators;
 using ApplyWise.Domain.Interfaces;
 using ApplyWise.Infrastructure.Persistence;
 using ApplyWise.Infrastructure.Repositories;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +23,8 @@ builder.Services.AddScoped<IJobRepository, JobRepository>();
 builder.Services.AddScoped<IJobService, JobService>();
 builder.Services.AddScoped<ICurrentUserService, FakeCurrentUserService>();
 
+builder.Services.AddValidatorsFromAssemblyContaining<CreateJobApplicationValidator>();
+
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
 builder.Services.AddCors(options =>
@@ -35,11 +39,6 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-app.UseCors("AllowAll"); // Ativa a regra que criamos acima
-
-// ... outros middlewares (HTTPS, Auth, etc)
-app.MapControllers();
-
 // --- SEÇÃO DE MIDDLEWARES (Pipeline de Execução) ---
 
 if (app.Environment.IsDevelopment())
@@ -49,7 +48,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("AllowAll"); 
+
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

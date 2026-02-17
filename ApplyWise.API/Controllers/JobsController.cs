@@ -1,4 +1,5 @@
-﻿using ApplyWise.Application.DTOs;
+﻿using ApplyWise.Application.Common;
+using ApplyWise.Application.DTOs;
 using ApplyWise.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,43 +20,77 @@ public class JobsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(JobApplicationRequest request)
     {
-        var id = await _jobService.CreateJobAsync(request);
+        var result = await _jobService.CreateJobAsync(request);
 
-        return Created($"/api/jobs/{id}", new { id });
+        return ProcessCreatedResult(result, nameof(GetById));
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        var result = await _jobService.GetJobByIdAsync(id);
+        return ProcessResult(result);
     }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var jobsList = await _jobService.GetAllJobsAsync();
+        var result = await _jobService.GetAllJobsAsync();
 
-        return Ok(jobsList);
+        return ProcessResult(result);
     }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] UpdateJobRequest request)
     {
-        var job = await _jobService.UpdateJobAsync(id, request);
+        var result = await _jobService.UpdateJobAsync(id, request);
 
-        if (job == null)
-        {
-            return NotFound();
-        }
-
-        return Ok(job);
+        return ProcessResult(result);
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete([FromRoute] Guid id)
     {
-        var succes = await _jobService.DeleteJobAsync(id);
+        var result = await _jobService.DeleteJobAsync(id);
 
-        if (succes)
+        return ProcessResult(result);
+    }
+
+    [NonAction]
+    private IActionResult ProcessCreatedResult<T>(Result<T> result, string actionName)
+    {
+        if (result.IsFailure)
         {
-            return NoContent();
-        } else
-        {
-            return NotFound();
+            return BadRequest(new { message = result.Error });
         }
+        
+
+        return CreatedAtAction(actionName, new { id = result.Value }, result.Value);
+    }
+
+    [NonAction]
+    private IActionResult ProcessResult<T>(Result<T> result)
+    {
+        if (result.IsFailure)
+        {
+            return result.Error != null && result.Error.Contains("não encontrado")
+                ? NotFound(new { message = result.Error })
+                : BadRequest(new { message = result.Error });
+        }
+
+        return Ok(result.Value);
+    }
+
+    [NonAction]
+    private IActionResult ProcessResult(Result result)
+    {
+        if (result.IsFailure)
+        {
+            return result.Error != null && result.Error.Contains("não encontrado")
+                ? NotFound(new { message = result.Error })
+                : BadRequest(new { message = result.Error });
+        }
+
+        return NoContent(); 
     }
 }

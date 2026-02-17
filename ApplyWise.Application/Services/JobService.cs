@@ -1,8 +1,10 @@
-﻿using ApplyWise.Application.DTOs;
+﻿using ApplyWise.Application.Common;
+using ApplyWise.Application.DTOs;
 using ApplyWise.Application.Interfaces;
 using ApplyWise.Domain.Entities;
 using ApplyWise.Domain.Interfaces;
 using AutoMapper;
+using FluentValidation;
 
 namespace ApplyWise.Application.Services;
 
@@ -11,71 +13,86 @@ public class JobService : IJobService
     private readonly IJobRepository _jobRepository;
     private readonly ICurrentUserService _currentUserService;
     private readonly IMapper _mapper;
+    private readonly IValidator<JobApplicationRequest> _createValidator;
+    private readonly IValidator<UpdateJobRequest> _updateValidator;
 
-    public JobService(IJobRepository jobRepository, ICurrentUserService currentUserService, IMapper mapper)
+    public JobService(IJobRepository jobRepository, ICurrentUserService currentUserService, IMapper mapper, IValidator<JobApplicationRequest> createValidator, IValidator<UpdateJobRequest> updateValidator)
     {
         _jobRepository = jobRepository;
         _currentUserService = currentUserService;
         _mapper = mapper;
+        _createValidator = createValidator;
+        _updateValidator = updateValidator;
     }
 
-    public async Task<Guid> CreateJobAsync(JobApplicationRequest request)
+    public async Task<Result<JobApplicationResponse>> CreateJobAsync(JobApplicationRequest request)
     {
-        var jobApplication = new JobApplication()
-        {
-            Company = request.Company,
-            JobTitle = request.JobTitle,
-            Description = request.Description,
-            URL = request.URL,
-            ResumeURL = request.ResumeURL,
-            SalaryRange = request.SalaryRange,
+        var validated = await _createValidator.ValidateAsync(request);
 
-            OwnerId = _currentUserService.UserId
-        };
+        if (!validated.IsValid) return FormatErrors(validated);
+
+        var jobApplication = _mapper.Map<JobApplication>(request, opt => opt.Items["UserId"] = _currentUserService.UserId);
 
         await _jobRepository.InsertJobAsync(jobApplication);
 
-        return jobApplication.Id;
+        var response = _mapper.Map<JobApplicationResponse>(jobApplication);
+
+        return Result<JobApplicationResponse>.Success(response);
     }
 
-    public async Task<bool> DeleteJobAsync(Guid id)
+    public async Task<Result> DeleteJobAsync(Guid id)
     {
         var job = await _jobRepository.GetJobByIdAsync(id);
 
-        if (job == null) return false;
+        if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
 
         await _jobRepository.DeleteJobAsync(job);
         
-        return true;
+        return Result.Success();
     }
 
-    public async Task<IEnumerable<JobApplicationResponse>> GetAllJobsAsync()
+    public async Task<Result<IEnumerable<JobApplicationResponse>>> GetAllJobsAsync()
     {
         var jobs = await _jobRepository.GetAllJobsAsync(_currentUserService.UserId);
 
-        return _mapper.Map<IEnumerable<JobApplicationResponse>>(jobs);
+        var response = _mapper.Map<IEnumerable<JobApplicationResponse>>(jobs);
+
+        return Result<IEnumerable<JobApplicationResponse>>.Success(response);
     }
 
-    public async Task<JobApplicationResponse?> GetJobByIdAsync(Guid id)
+    public async Task<Result<JobApplicationResponse>> GetJobByIdAsync(Guid id)
     {
         var job = await _jobRepository.GetJobByIdAsync(id);
 
-        if (job == null) return null;
+        if (job == null) return "Job não encontrado.";
 
-        return _mapper.Map<JobApplicationResponse>(job);
+        var response = _mapper.Map<JobApplicationResponse>(job);
+
+        return Result<JobApplicationResponse>.Success(response);
     }
 
-    public async Task<JobApplicationResponse?> UpdateJobAsync(Guid id, UpdateJobRequest request)
+    public async Task<Result<JobApplicationResponse>> UpdateJobAsync(Guid id, UpdateJobRequest request)
     {
+        var validated = await _updateValidator.ValidateAsync(request);
+
+        if (!validated.IsValid) return FormatErrors(validated);
+
         var job = await _jobRepository.GetJobByIdAsync(id);
 
-        if (job == null) return null;
+        if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
 
         _mapper.Map(request, job);
 
         await _jobRepository.UpdateJobAsync(job);
 
-        return _mapper.Map<JobApplicationResponse>(job);
+        var response = _mapper.Map<JobApplicationResponse>(job);
+
+        return Result<JobApplicationResponse>.Success(response);
+    }
+
+    private string FormatErrors(FluentValidation.Results.ValidationResult listErrors)
+    {
+        return string.Join(" | ", listErrors.Errors.Select(e => e.ErrorMessage));
     }
 
 }

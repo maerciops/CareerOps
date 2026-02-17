@@ -1,12 +1,13 @@
 ﻿using ApplyWise.Application.DTOs;
+using ApplyWise.Application.Common;
 
 namespace ApplyWise.Application.Interfaces;
 
 public interface IJobService
 {
-    Task<Guid> CreateJobAsync(JobApplicationRequest request);
-    Task<JobApplicationResponse?> GetJobByIdAsync(Guid id);
-    Task<IEnumerable<JobApplicationResponse>> GetAllJobsAsync();
-    Task<JobApplicationResponse?> UpdateJobAsync(Guid id, UpdateJobRequest request);
-    Task<bool> DeleteJobAsync(Guid id);
+    Task<Result<JobApplicationResponse>> CreateJobAsync(JobApplicationRequest request);
+    Task<Result<JobApplicationResponse>> GetJobByIdAsync(Guid id);
+    Task<Result<IEnumerable<JobApplicationResponse>>> GetAllJobsAsync();
+    Task<Result<JobApplicationResponse>> UpdateJobAsync(Guid id, UpdateJobRequest request);
+    Task<Result> DeleteJobAsync(Guid id);
 }
