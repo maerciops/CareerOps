@@ -26,29 +26,28 @@ This project serves as a comprehensive portfolio demonstrating a **Senior-level 
 
 The solution follows the **Clean Architecture** principles to ensure separation of concerns, testability, and adherence to the Dependency Inversion Principle.
 
-```mermaid
 graph TD
     %% Atores e Camadas Externas
-    User((User)) --> API[Presentation Layer (Web API / Blazor)]
+    User((User)) --> API["Presentation Layer (Web API / Blazor)"]
 
     %% Fluxo de Dependências (Quem conhece quem)
     subgraph Core [Core Business Logic]
         direction TB
-        Application[Application Layer<br/>(Interfaces, Use Cases, DTOs)] --> Domain[Domain Layer<br/>(Entities, Logic)]
+        Application["Application Layer<br/>(Interfaces, Use Cases, DTOs)"] --> Domain["Domain Layer<br/>(Entities, Logic)"]
     end
 
     %% A API conhece a Infra para Injeção de Dependência (Composition Root)
     API --> Core
-    API --> Infrastructure[Infrastructure Layer<br/>(Implementation)]
+    API --> Infrastructure["Infrastructure Layer<br/>(Implementation)"]
 
     %% A Infra conhece o Core para implementar as Interfaces
     Infrastructure --> Application
     Infrastructure --> Domain
 
     %% Recursos Externos (Acessados pela Infra)
-    Infrastructure -.-> DB[(SQL Server)]
-    Infrastructure -.-> Blob[Azure Blob Storage]
-    Infrastructure -.-> AI[Google Gemini API]
+    Infrastructure -.-> DB[("SQL Server")]
+    Infrastructure -.-> Blob[("Azure Blob Storage")]
+    Infrastructure -.-> AI["Google Gemini API"]
 
     %% Estilização
     classDef core fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
