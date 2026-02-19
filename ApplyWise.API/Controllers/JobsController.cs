@@ -17,6 +17,14 @@ public class JobsController : ControllerBase
         _jobService = jobService;
     }
 
+    [HttpPost("{id}/analyze")]
+    public async Task<IActionResult> Analyze([FromRoute] Guid id)
+    {
+        var result = await _jobService.AnalyzeJobAsync(id);
+
+        return ProcessResult(result);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create(JobApplicationRequest request)
     {

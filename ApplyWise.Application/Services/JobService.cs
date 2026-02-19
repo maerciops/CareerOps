@@ -15,14 +15,45 @@ public class JobService : IJobService
     private readonly IMapper _mapper;
     private readonly IValidator<JobApplicationRequest> _createValidator;
     private readonly IValidator<UpdateJobRequest> _updateValidator;
+    private readonly IAnalysisService _analysisService;
 
-    public JobService(IJobRepository jobRepository, ICurrentUserService currentUserService, IMapper mapper, IValidator<JobApplicationRequest> createValidator, IValidator<UpdateJobRequest> updateValidator)
+    public JobService(
+        IJobRepository jobRepository, 
+        ICurrentUserService currentUserService, 
+        IMapper mapper, 
+        IValidator<JobApplicationRequest> createValidator, 
+        IValidator<UpdateJobRequest> updateValidator,
+        IAnalysisService analysisService)
     {
         _jobRepository = jobRepository;
         _currentUserService = currentUserService;
         _mapper = mapper;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
+        _analysisService = analysisService;
+    }
+
+    public async Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id)
+    {
+        var job = await _jobRepository.GetJobByIdAsync(id);
+
+        if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
+
+        //a property resumeText nao existe. TENHO que implementar um leitor de pdf, algo do tipo para transformar em string.
+
+        var resumeText = "Desenvolvedor .NET Pleno, C#, SQL Server, Docker, Blazor, MVP, DDM...";
+
+        var jobDescription = job.Description ?? string.Empty;
+
+        var aiAnalysisResult = await _analysisService.AnalyzeJobCompatibilityAsync(jobDescription, resumeText);
+
+        job.AiAnalysisResult = aiAnalysisResult;
+
+        await _jobRepository.UpdateJobAsync(job);
+
+        var response = _mapper.Map<JobApplicationResponse>(job);
+
+        return Result<JobApplicationResponse>.Success(response);
     }
 
     public async Task<Result<JobApplicationResponse>> CreateJobAsync(JobApplicationRequest request)
@@ -94,5 +125,4 @@ public class JobService : IJobService
     {
         return string.Join(" | ", listErrors.Errors.Select(e => e.ErrorMessage));
     }
-
 }

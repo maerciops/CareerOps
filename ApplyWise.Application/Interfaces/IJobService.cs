@@ -10,4 +10,5 @@ public interface IJobService
     Task<Result<IEnumerable<JobApplicationResponse>>> GetAllJobsAsync();
     Task<Result<JobApplicationResponse>> UpdateJobAsync(Guid id, UpdateJobRequest request);
     Task<Result> DeleteJobAsync(Guid id);
+    Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id);
 }
