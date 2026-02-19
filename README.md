@@ -1,30 +1,30 @@
-# 🚀 ApplyWise
+# 🚀 CareerOps
 
-> **Enterprise AI-Powered Career Assistant & ATS**
-> *Architected for Scalability, Multi-tenancy, and Cost-Efficiency.*
+> **Enterprise Career CRM & AI-Driven Analytics Platform**
+> *Architected for Scalability, Multi-tenancy, and Data-Driven Job Searching.*
 
 ![.NET 8](https://img.shields.io/badge/.NET%208-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
 ![Azure](https://img.shields.io/badge/Azure-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white)
 ![Blazor](https://img.shields.io/badge/Blazor-512BD4?style=for-the-badge&logo=blazor&logoColor=white)
 ![Semantic Kernel](https://img.shields.io/badge/Semantic%20Kernel-black?style=for-the-badge)
-![Gemini 3.0](https://img.shields.io/badge/AI-Gemini%201.5%20Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Gemini 2.5 Flash](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)
 
 ## 📋 Project Overview
 
-**ApplyWise** is a modern, cloud-native Application Tracking System (ATS) tailored for candidates. It leverages **Generative AI** to analyze resumes against job descriptions, providing actionable feedback to increase hiring chances.
+**CareerOps** is a modern, cloud-native Career CRM designed to give candidates telemetry and strategic control over their job search. It moves beyond traditional "apply and pray" methods by leveraging **Generative AI** to analyze resumes against job descriptions, providing actionable gap analysis and A/B testing insights.
 
-This project serves as a comprehensive portfolio demonstrating a **Senior-level migration from Delphi to the .NET ecosystem**. It strictly adheres to **Clean Architecture**, **Domain-Driven Design (DDD)** principles, and **SaaS Multi-tenancy** strategies suitable for the European Enterprise market.
+This project serves as a comprehensive engineering portfolio demonstrating a **Senior-level architecture** suitable for the European Enterprise market. It strictly adheres to **Clean Architecture**, **Domain-Driven Design (DDD)** principles, and **SaaS Multi-tenancy** strategies.
 
 ### 🎯 Key Goals
-- **Architecture First:** Demonstrate a robust Modular Monolith ready for microservices extraction.
-- **FinOps Oriented:** Architecture optimized for low cloud costs using efficient AI models (**Gemini 3.0 Flash**) and local text processing.
+- **Architecture First:** Demonstrate a robust Modular Monolith ready for microservices and data pipelines extraction.
+- **FinOps Oriented:** Architecture optimized for low cloud costs using efficient AI models (**Gemini 2.5 Flash**) and local text processing.
 - **Privacy by Design:** GDPR-compliant architecture with strict data isolation per tenant and audit trails.
 
 ---
 
 ## 🏗️ Architecture
 
-The solution follows the **Clean Architecture** principles to ensure separation of concerns, testability, and adherence to the Dependency Inversion Principle.
+The solution follows **Clean Architecture** principles to ensure separation of concerns, testability, and adherence to the Dependency Inversion Principle.
 
 ```mermaid
 graph TD
@@ -32,7 +32,7 @@ graph TD
     User((User)) --> API["Presentation Layer (Web API / Blazor)"]
 
     %% Fluxo de Dependências (Quem conhece quem)
-    subgraph Core [Core Business Logic]
+    subgraph Core ["Core Business Logic"]
         direction TB
         Application["Application Layer<br/>(Interfaces, Use Cases, DTOs)"] --> Domain["Domain Layer<br/>(Entities, Logic)"]
     end
@@ -46,7 +46,7 @@ graph TD
     Infrastructure --> Domain
 
     %% Recursos Externos (Acessados pela Infra)
-    Infrastructure -.-> DB[("SQL Server")]
+    Infrastructure -.-> DB[("Azure SQL")]
     Infrastructure -.-> Blob[("Azure Blob Storage")]
     Infrastructure -.-> AI["Google Gemini API"]
 
