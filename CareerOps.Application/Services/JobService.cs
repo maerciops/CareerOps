@@ -5,7 +5,6 @@ using CareerOps.Domain.Entities;
 using CareerOps.Domain.Interfaces;
 using AutoMapper;
 using FluentValidation;
-using System.IO;
 
 namespace CareerOps.Application.Services;
 
@@ -18,6 +17,7 @@ public class JobService : IJobService
     private readonly IValidator<UpdateJobRequest> _updateValidator;
     private readonly IAnalysisService _analysisService;
     private readonly IPdfParserService _pdfParserService;
+    private readonly IStorageService _azureStorageService;
 
     public JobService(
         IJobRepository jobRepository, 
@@ -26,7 +26,8 @@ public class JobService : IJobService
         IValidator<JobApplicationRequest> createValidator, 
         IValidator<UpdateJobRequest> updateValidator,
         IAnalysisService analysisService,
-        IPdfParserService pdfParserService)
+        IPdfParserService pdfParserService,
+        IStorageService azureStorageService)
     {
         _jobRepository = jobRepository;
         _currentUserService = currentUserService;
@@ -35,6 +36,7 @@ public class JobService : IJobService
         _updateValidator = updateValidator;
         _analysisService = analysisService;
         _pdfParserService = pdfParserService;
+        _azureStorageService = azureStorageService;
     }
 
     public async Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id)
@@ -43,7 +45,7 @@ public class JobService : IJobService
 
         if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
 
-        var bytesPdf = await File.ReadAllBytesAsync("C:/Users/nerso/Downloads/CV_Maercio_Software_Engineer.pdf");
+        var bytesPdf = await _azureStorageService.GetFileBytesAsync(job.ResumeURL);
 
         var resumeText = await _pdfParserService.ExtractTextFromPdfAsync(bytesPdf);
 
@@ -117,6 +119,23 @@ public class JobService : IJobService
         if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
 
         _mapper.Map(request, job);
+
+        await _jobRepository.UpdateJobAsync(job);
+
+        var response = _mapper.Map<JobApplicationResponse>(job);
+
+        return Result<JobApplicationResponse>.Success(response);
+    }
+
+    public async Task<Result<JobApplicationResponse>> UploadResumeAsync(Guid jobId, Stream fileStream, string fileName, string contentType = "application/pdf")
+    {
+        var job = await _jobRepository.GetJobByIdAsync(jobId);
+
+        if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
+
+        var resumeUrl = await _azureStorageService.UploadFileAsync(fileStream, fileName, contentType);
+
+        job.ResumeURL = resumeUrl;
 
         await _jobRepository.UpdateJobAsync(job);
 

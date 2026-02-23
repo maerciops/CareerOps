@@ -56,6 +56,20 @@ public class JobsController : ControllerBase
         return ProcessResult(result);
     }
 
+    [HttpPost("{id}/resume")]
+    public async Task<IActionResult> UploadFile([FromRoute] Guid id, IFormFile file)
+    {
+        if (file == null || file.Length == 0) return BadRequest("Arquivo inválido.");
+
+        if (file.ContentType != "application/pdf") return BadRequest("Extensão do arquivo inválida.");
+
+        using var fileOpened = file.OpenReadStream();
+
+        var result = await _jobService.UploadResumeAsync(id, fileOpened, file.FileName, file.ContentType);
+
+        return ProcessResult(result);
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete([FromRoute] Guid id)
     {

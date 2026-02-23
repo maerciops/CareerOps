@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/tests/">
     <Project Path="tests/CareerOps.Architecture.Tests/CareerOps.Architecture.Tests.csproj" />
+    <Project Path="tests/CareerOps.Domain.Tests/CareerOps.Domain.Tests.csproj" />
   </Folder>
   <Project Path="CareerOps.API/CareerOps.API.csproj" />
   <Project Path="CareerOps.Application/CareerOps.Application.csproj" />

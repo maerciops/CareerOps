@@ -11,4 +11,5 @@ public interface IJobService
     Task<Result<JobApplicationResponse>> UpdateJobAsync(Guid id, UpdateJobRequest request);
     Task<Result> DeleteJobAsync(Guid id);
     Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id);
+    Task<Result<JobApplicationResponse>> UploadResumeAsync(Guid jobId, Stream fileStream, string fileName, string contentType = "application/pdf");
 }

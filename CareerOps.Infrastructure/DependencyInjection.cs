@@ -1,13 +1,15 @@
 ﻿using CareerOps.Domain.Interfaces;
+using CareerOps.Infrastructure.Auth;
+using CareerOps.Infrastructure.Externalservices.Azure;
+using CareerOps.Infrastructure.Externalservices.Azure.Configuration;
+using CareerOps.Infrastructure.Externalservices.Gemini.Configuration;
+using CareerOps.Infrastructure.Externalservices.Parsers;
 using CareerOps.Infrastructure.Persistence;
 using CareerOps.Infrastructure.Repositories;
-using CareerOps.Infrastructure.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using CareerOps.Infrastructure.Externalservices.Gemini.Configuration;
-using CareerOps.Infrastructure.Externalservices.Parsers;
 
 namespace CareerOps.Infrastructure;
 
@@ -20,6 +22,7 @@ public static class DependencyInjection
             options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 
         services.Configure<GeminiOptions>(configuration.GetSection(GeminiOptions.SectionName));
+        services.Configure<AzureOptions>(configuration.GetSection(AzureOptions.SectionName));
 
         services.AddHttpClient<IAnalysisService, GeminiService>((serviceProvider, client) =>
         {
@@ -36,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IJobRepository, JobRepository>();
         services.AddScoped<ICurrentUserService, FakeCurrentUserService>();
         services.AddScoped<IPdfParserService, PdfParserService>();
+        services.AddScoped<IStorageService, AzureBlobStorageService>();
 
         return services;
     }
