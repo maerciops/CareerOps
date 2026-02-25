@@ -32,6 +32,10 @@ public static class MiddlewareExtensions
                         statusCode = 400;
                         message = ex.Message;
                         break;
+                    case QuotaExceededDomainException ex:
+                        statusCode = 429; // Too Many Requests
+                        message = ex.Message;
+                        break;
                     default:
                         statusCode = 500;
                         message = "Erro interno inesperado.";

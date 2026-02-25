@@ -1,5 +1,7 @@
-﻿using CareerOps.Domain.Interfaces;
+﻿using CareerOps.Application.Interfaces;
+using CareerOps.Domain.Interfaces;
 using CareerOps.Infrastructure.Auth;
+using CareerOps.Infrastructure.BackgroundJobs;
 using CareerOps.Infrastructure.Externalservices.Azure;
 using CareerOps.Infrastructure.Externalservices.Azure.Configuration;
 using CareerOps.Infrastructure.Externalservices.Gemini.Configuration;
@@ -40,6 +42,9 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, FakeCurrentUserService>();
         services.AddScoped<IPdfParserService, PdfParserService>();
         services.AddScoped<IStorageService, AzureBlobStorageService>();
+        services.AddScoped<IUserQuotaRepository, UserQuotaRepository>();
+        services.AddSingleton<IAnalysisQueue, AnalysisQueue>();
+        services.AddHostedService<AnalysisWorker>();
 
         return services;
     }

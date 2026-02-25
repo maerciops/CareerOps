@@ -10,31 +10,41 @@ public class JobApplication : BaseEntity
     public string? Description { get; set; }
     public string? URL { get; set; }
     public decimal? SalaryRange { get; set; }
-    public ApplicationStatus Status { get; set; } = ApplicationStatus.Applied;
+    public ApplicationStatus ApplicationStatus { get; set; } = ApplicationStatus.Applied;
     public string? ResumeURL { get; set; }
     public string? AiAnalysisResult { get; set; }
+    public AnalysisStatus AnalysisStatus { get; private set; } = AnalysisStatus.None;
+    public string? AnalysisErrorMessage { get; private set; }
 
     // Regras de negócio centralizadas e estáticas (carregadas uma única vez na memória)
     private static readonly Dictionary<ApplicationStatus, HashSet<ApplicationStatus>> NextStatusRules =
         new()
         {
-            { ApplicationStatus.Applied, new() { ApplicationStatus.Interview, ApplicationStatus.Rejected, ApplicationStatus.Offer } },
+            { ApplicationStatus.Applied, new() { ApplicationStatus.HrInterview, ApplicationStatus.TechnicalInterview, ApplicationStatus.Rejected, ApplicationStatus.Offer } },
             
-            { ApplicationStatus.Interview, new() { ApplicationStatus.Offer, ApplicationStatus.Rejected } },
-            
+            { ApplicationStatus.HrInterview, new() { ApplicationStatus.TechnicalInterview, ApplicationStatus.Offer, ApplicationStatus.Rejected } },
+
+            { ApplicationStatus.TechnicalInterview, new() { ApplicationStatus.Offer, ApplicationStatus.Rejected } },
+
             { ApplicationStatus.Rejected, new() },
             { ApplicationStatus.Offer, new() }
         };
 
     public void UpdateStatus(ApplicationStatus nextStatus)
     {
-        if (!NextStatusRules.ContainsKey(Status) || !NextStatusRules[Status].Contains(nextStatus))
+        if (!NextStatusRules.ContainsKey(ApplicationStatus) || !NextStatusRules[ApplicationStatus].Contains(nextStatus))
         {
-            throw new InvalidOperationException($"Transição inválida: Não é permitido mudar de {Status} para {nextStatus}.");
+            throw new InvalidOperationException($"Transição inválida: Não é permitido mudar de {ApplicationStatus} para {nextStatus}.");
         }
 
-        Status = nextStatus;
+        ApplicationStatus = nextStatus;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateAnalysisStatus(AnalysisStatus status, string? errorMessage = null)
+    {
+        AnalysisStatus = status;
+        AnalysisErrorMessage = errorMessage;
     }
 
 }

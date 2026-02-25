@@ -8,6 +8,7 @@ public class ApplicationDbContext: DbContext
 {
     private readonly ICurrentUserService _userContext;
     public DbSet<JobApplication> Jobs { get; set; }
+    public DbSet<UserQuota> UserQuotas { get; set; }
 
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentUserService currentUserService) : base(options)
     {
@@ -53,6 +54,8 @@ public class ApplicationDbContext: DbContext
     {
         modelBuilder.Entity<JobApplication>().Property<bool>("IsDeleted").HasDefaultValue(false);
         modelBuilder.Entity<JobApplication>().HasQueryFilter(p => EF.Property<bool>(p, "IsDeleted") == false && p.OwnerId == _userContext.UserId);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
         base.OnModelCreating(modelBuilder);
     }
 }

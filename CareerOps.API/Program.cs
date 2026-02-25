@@ -1,5 +1,5 @@
-using CareerOps.Infrastructure;
 using CareerOps.Application;
+using CareerOps.Infrastructure;
 using CareerOps.Infrastructure.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +25,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // --- SEÇÃO DE MIDDLEWARES (Pipeline de Execução) ---
+app.UseGlobalExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {
@@ -33,10 +34,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseGlobalExceptionHandler();
-
 app.UseCors("AllowAll"); 
-
 app.UseAuthorization();
 
 app.MapControllers();

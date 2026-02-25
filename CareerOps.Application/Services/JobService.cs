@@ -5,11 +5,13 @@ using CareerOps.Domain.Entities;
 using CareerOps.Domain.Interfaces;
 using AutoMapper;
 using FluentValidation;
+using CareerOps.Domain.Enums;
 
 namespace CareerOps.Application.Services;
 
 public class JobService : IJobService
 {
+    private readonly IUserQuotaRepository _userQuotaRepository;
     private readonly IJobRepository _jobRepository;
     private readonly ICurrentUserService _currentUserService;
     private readonly IMapper _mapper;
@@ -18,8 +20,10 @@ public class JobService : IJobService
     private readonly IAnalysisService _analysisService;
     private readonly IPdfParserService _pdfParserService;
     private readonly IStorageService _azureStorageService;
+    private readonly IAnalysisQueue _analysisQueue;
 
     public JobService(
+        IUserQuotaRepository userQuotaRepository,
         IJobRepository jobRepository, 
         ICurrentUserService currentUserService, 
         IMapper mapper, 
@@ -27,8 +31,10 @@ public class JobService : IJobService
         IValidator<UpdateJobRequest> updateValidator,
         IAnalysisService analysisService,
         IPdfParserService pdfParserService,
-        IStorageService azureStorageService)
+        IStorageService azureStorageService,
+        IAnalysisQueue analysisQueue)
     {
+        _userQuotaRepository = userQuotaRepository;
         _jobRepository = jobRepository;
         _currentUserService = currentUserService;
         _mapper = mapper;
@@ -37,28 +43,32 @@ public class JobService : IJobService
         _analysisService = analysisService;
         _pdfParserService = pdfParserService;
         _azureStorageService = azureStorageService;
+        _analysisQueue = analysisQueue;
     }
 
     public async Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id)
     {
         var job = await _jobRepository.GetJobByIdAsync(id);
-
         if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
+        if (string.IsNullOrEmpty(job.ResumeURL)) return "Nenhum currículo foi anexado a esta vaga. Faça o upload antes de analisar.";
 
-        var bytesPdf = await _azureStorageService.GetFileBytesAsync(job.ResumeURL);
+        var userId = _currentUserService.UserId;
+        var quota = await _userQuotaRepository.GetByOwnerIdAsync(userId);
+        if (quota == null)
+        {
+            quota = new UserQuota(userId, 5);
+            _userQuotaRepository.Add(quota);
+        }
+        quota.ConsumeAnalysis();
 
-        var resumeText = await _pdfParserService.ExtractTextFromPdfAsync(bytesPdf);
+        job.UpdateAnalysisStatus(AnalysisStatus.Pending);
 
-        var jobDescription = job.Description ?? string.Empty;
-
-        var aiAnalysisResult = await _analysisService.AnalyzeJobCompatibilityAsync(jobDescription, resumeText);
-
-        job.AiAnalysisResult = aiAnalysisResult;
-
+        await _userQuotaRepository.SaveChangesAsync();
         await _jobRepository.UpdateJobAsync(job);
 
-        var response = _mapper.Map<JobApplicationResponse>(job);
+        await _analysisQueue.QueueAnalysisAsync(job.Id);
 
+        var response = _mapper.Map<JobApplicationResponse>(job);
         return Result<JobApplicationResponse>.Success(response);
     }
 
