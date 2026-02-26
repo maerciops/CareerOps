@@ -1,0 +1,225 @@
+﻿@page "/dashboard"
+@using CareerOps.Application.DTOs
+@using CareerOps.Frontend.Services
+@using CareerOps.Frontend.Components
+@inject JobApiClient JobClient
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8">
+    @* O Cabeçalho e o Botão devem ficar FORA dos IFs de carregamento *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-6">
+        <MudText Typo="Typo.h4">Minhas Vagas</MudText>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="OpenAddJobDialog">
+            Nova Vaga
+        </MudButton>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudStack AlignItems="AlignItems.Center" Class="mt-16">
+            <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+            <MudText Typo="Typo.body1">A carregar as tuas oportunidades...</MudText>
+        </MudStack>
+    }
+    else if (_jobs == null || !_jobs.Any())
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">
+            Ainda não registaste nenhuma vaga. Clica em "Nova Vaga" para começar!
+        </MudAlert>
+    }
+    else
+    {
+        <MudDataGrid Items="@_jobs" Hover="true" Striped="true" Dense="true" Elevation="2">
+            <Columns>
+                <PropertyColumn Property="x => x.Company" Title="Empresa" />
+                <PropertyColumn Property="x => x.JobTitle" Title="Vaga" />
+                <PropertyColumn Property="x => x.SalaryRange" Title="Salário" Format="C2" />
+
+                @* Status de Aplicação (Onde você está no processo) *@
+                <TemplateColumn Title="Status">
+                    <CellTemplate>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">
+                            @context.Item.ApplicationStatus
+                        </MudChip>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                @* Status da IA (Se a análise terminou) *@
+                <TemplateColumn Title="Análise IA">
+                    <CellTemplate>
+                        @{
+                            var status = context.Item.AnalysisStatus;
+                            var color = status switch
+                            {
+                                    "Completed" => Color.Success,
+                                    "Processing" => Color.Warning,
+                                    "Failed" => Color.Error,
+                                _ => Color.Default
+                            };
+                        }
+                        <MudChip T="string" Size="Size.Small" Color="@color">@status</MudChip>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                @* Ações - Agora dentro de Columns! *@
+                <TemplateColumn Title="Ações" CellClass="d-flex justify-end">
+                    <CellTemplate>
+                        <MudIconButton Icon="@Icons.Material.Filled.AutoFixHigh"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       OnClick="@(() => ShowAnalysis(context.Item))"
+                                       Disabled="@(context.Item.AnalysisStatus != "Completed")"
+                                       Title="Ver Análise da IA" />
+
+                        <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                       Size="Size.Small"
+                                       Color="Color.Info"
+                                       Title="Ver Detalhes" />
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+        </MudDataGrid>
+
+        @* Coloque o Drawer aqui, ele fica "escondido" até ser ativado *@
+        <MudDrawer @bind-Open="_drawerOpen" Anchor="Anchor.End" Width="600px" Variant="@DrawerVariant.Temporary" Elevation="5">
+            <MudDrawerHeader>
+                <MudText Typo="Typo.h6">Análise da IA</MudText>
+            </MudDrawerHeader>
+            <MudContainer Class="pa-4" Style="overflow-y: auto; max-height: 85vh;">
+                @if (_selectedJob != null)
+                {
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary"><b>@_selectedJob.JobTitle</b> em <b>@_selectedJob.Company</b></MudText>
+                    <MudDivider Class="my-3" />
+
+                    @if (string.IsNullOrEmpty(_selectedJob.AiAnalysisResult))
+                    {
+                        <MudAlert Severity="Severity.Info">A análise ainda não está pronta ou não foi gerada.</MudAlert>
+                    }
+                    else
+                    {
+                        <MudStack Spacing="4">
+                            @{
+                                var isRejected = _selectedJob.AiAnalysisResult.Contains("REJEITADO");
+                                var alertColor = isRejected ? Color.Error : Color.Success;
+                                var alertIcon = isRejected ? Icons.Material.Filled.Error : Icons.Material.Filled.CheckCircle;
+                            }
+
+                            <MudAlert Severity="@(isRejected? Severity.Error: Severity.Success)"
+                                      Variant="Variant.Filled"
+                                      NoIcon="false"
+                                      ContentAlignment="HorizontalAlignment.Center"
+                                      Class="py-2">
+                                <MudText Typo="Typo.h6">@_selectedJob.AiAnalysisResult.Split('\n').Last()</MudText>
+                            </MudAlert>
+
+                            <div style="background-color: var(--mud-palette-background-grey); padding: 20px; border-radius: 12px; border-left: 6px solid var(--mud-palette-primary);">
+                                <MudText Typo="Typo.body1" Style="white-space: pre-wrap; line-height: 1.6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+                                    @_selectedJob.AiAnalysisResult
+                                </MudText>
+                            </div>
+
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Download"
+                                       Class="mt-2">
+                                Baixar Relatório (PDF)
+                            </MudButton>
+                        </MudStack>
+                    }
+                }
+            </MudContainer>
+        </MudDrawer>
+    }
+</MudContainer>
+
+@code {
+    private IEnumerable<JobApplicationResponse>? _jobs;
+    private bool _loading = true;
+    private bool _drawerOpen;
+    private JobApplicationResponse? _selectedJob;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshJobsList();
+    }
+
+    private void ShowAnalysis(JobApplicationResponse job)
+    {
+        _selectedJob = job;
+        _drawerOpen = true;
+        StateHasChanged();
+    }
+
+    private async Task RefreshJobsList()
+    {
+        try
+        {
+            // 1. Buscamos os dados do Client
+            var result = await JobClient.GetJobsAsync();
+
+            // 2. Atribuímos à variável local
+            _jobs = result?.ToList() ?? new List<JobApplicationResponse>();
+
+            Console.WriteLine($"Dashboard recebeu: {_jobs.Count()} vagas.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro no Refresh: {ex.Message}");
+            Snackbar.Add("Erro ao atualizar lista.", Severity.Error);
+            _jobs = new List<JobApplicationResponse>();
+        }
+        finally
+        {
+            _loading = false;
+            // 3. OBRIGATÓRIO: Avisa o Blazor que os dados mudaram
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenAddJobDialog()
+    {
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            BackdropClick = false
+        };
+
+        var dialog = await DialogService.ShowAsync<AddJobDialog>("Cadastrar Nova Oportunidade", options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            await RefreshJobsList();
+        }
+    }
+
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        // Inicia um timer que roda a cada 5 segundos
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                // Só atualiza se houver algo sendo processado para economizar recursos
+                if (_jobs?.Any(j => j.AnalysisStatus == "Processing" || j.AnalysisStatus == "Pending") ?? false)
+                {
+                    await RefreshJobsList();
+                    StateHasChanged();
+                }
+            });
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

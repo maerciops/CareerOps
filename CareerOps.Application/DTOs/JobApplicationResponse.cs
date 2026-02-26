@@ -8,9 +8,10 @@ public class JobApplicationResponse
     public string? Description { get; set; }
     public string? URL { get; set; }
     public decimal? SalaryRange { get; set; }
-    public string? Status { get; set; } 
+    public string? ApplicationStatus { get; set; } 
     public string? ResumeURL { get; set; }
     public string? AiAnalysisResult { get; set; }
+    public string? AnalysisStatus { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 

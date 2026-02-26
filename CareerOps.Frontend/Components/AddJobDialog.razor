@@ -1,0 +1,132 @@
+﻿@using MudBlazor
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Net.Http.Json
+@using CareerOps.Application.DTOs
+@inject ISnackbar Snackbar
+@inject HttpClient Http
+
+<MudDialog>
+    <TitleContent>Cadastrar Nova Oportunidade</TitleContent>
+    <DialogContent>
+        <MudStack Spacing="4">
+            <MudTextField @bind-Value="_request.Company" Label="Empresa" Variant="Variant.Outlined" Required="true" />
+            <MudTextField @bind-Value="_request.JobTitle" Label="Título da Vaga" Variant="Variant.Outlined" Required="true" />
+            <MudTextField @bind-Value="_request.Description" Label="Descrição da Vaga" Variant="Variant.Outlined" Required="true" />
+            <MudTextField @bind-Value="_request.URL" Label="URL da Vaga" Variant="Variant.Outlined" Required="true" />
+
+            @* Sintaxe MudBlazor v7: O botão é o conteúdo direto *@
+            <MudFileUpload T="IBrowserFile" FilesChanged="HandleFileSelected" Class="mt-2">
+                <MudButton HtmlTag="label"
+                           Variant="Variant.Filled"
+                           Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.CloudUpload">
+                    @(_file == null ? "Upload Currículo (PDF)" : _file.Name)
+                </MudButton>
+            </MudFileUpload>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit"
+                   Disabled="@(_loading || !IsFormValid())">
+            @if (_loading)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+            else
+            {
+
+                <MudText>Iniciar Análise</MudText>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private JobApplicationRequest _request = new();
+    private IBrowserFile? _file;
+    private bool _loading;
+
+    private void HandleFileSelected(IBrowserFile file) => _file = file;
+    private void Cancel() => MudDialog.Cancel();
+
+    private bool IsFormValid() =>
+        !string.IsNullOrWhiteSpace(_request.Company) &&
+        !string.IsNullOrWhiteSpace(_request.JobTitle) &&
+        !string.IsNullOrWhiteSpace(_request.Description) &&
+        !string.IsNullOrWhiteSpace(_request.URL) &&
+        _file != null;
+
+    private async Task Submit()
+    {
+        Console.WriteLine("1. Botão clicado!");
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            Console.WriteLine($"2. Tentando conectar em: {Http.BaseAddress}api/jobs");
+
+            // Timeout manual para não esperar a vida toda
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            var createResponse = await Http.PostAsJsonAsync("api/jobs", _request, cts.Token);
+
+            Console.WriteLine($"3. Resposta recebida! Status: {createResponse.StatusCode}");
+
+            if (!createResponse.IsSuccessStatusCode)
+            {
+                var error = await createResponse.Content.ReadAsStringAsync();
+                Console.WriteLine($"4. Erro da API: {error}");
+                return;
+            }
+
+            var jobDto = await createResponse.Content.ReadFromJsonAsync<JobApplicationResponse>();
+            Console.WriteLine($"5. Guid recebido: {jobDto?.Id}");
+
+            if (jobDto != null && _file != null)
+            {
+                Console.WriteLine("6. Iniciando Upload do PDF...");
+
+                using var content = new MultipartFormDataContent();
+
+                var fileStream = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                var fileContent = new StreamContent(fileStream);
+
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_file.ContentType);
+
+                content.Add(fileContent, "file", _file.Name);
+
+                var uploadResponse = await Http.PostAsync($"api/jobs/{jobDto.Id}/resume", content);
+
+                if (uploadResponse.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("7. Upload concluído com sucesso!");
+                    Snackbar.Add("Vaga e Currículo enviados!", Severity.Success);
+                    MudDialog.Close(DialogResult.Ok(true));
+                }
+                else
+                {
+                    var uploadError = await uploadResponse.Content.ReadAsStringAsync();
+                    Console.WriteLine($"ERRO NO UPLOAD: {uploadError}");
+                    Snackbar.Add("Vaga criada, mas falha ao subir PDF.", Severity.Warning);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("ERRO: A API demorou demais para responder (Timeout).");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"CRASH: {ex.GetType().Name} - {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

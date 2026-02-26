@@ -38,8 +38,10 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         });
 
+        services.AddHttpContextAccessor();
+
         services.AddScoped<IJobRepository, JobRepository>();
-        services.AddScoped<ICurrentUserService, FakeCurrentUserService>();
+        services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IPdfParserService, PdfParserService>();
         services.AddScoped<IStorageService, AzureBlobStorageService>();
         services.AddScoped<IUserQuotaRepository, UserQuotaRepository>();

@@ -1,0 +1,73 @@
+﻿@page "/login"
+@using CareerOps.Frontend.Services
+@inject HttpClient Http
+@inject ITokenProvider TokenProvider
+@inject NavigationManager NavManager
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Elevation="4" Class="pa-8">
+        <MudStack Spacing="4">
+            <MudText Typo="Typo.h4" Align="Align.Center">CareerOps</MudText>
+            <MudText Typo="Typo.body2" Align="Align.Center">Introduz o teu e-mail para aceder à Private Alpha</MudText>
+
+            <MudTextField @bind-Value="_email" Label="E-mail" Variant="Variant.Outlined"
+                          InputType="InputType.Email" Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Email" />
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                       FullWidth="true" OnClick="HandleLogin" Disabled="_loading">
+                @if (_loading)
+                {
+                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                    <MudText Class="ms-2">A autenticar...</MudText>
+                }
+                else
+                {
+                    <MudText>Entrar</MudText>
+                }
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _email = "maercio10@gmail.com";
+    private bool _loading;
+
+    private async Task HandleLogin()
+    {
+        _loading = true;
+        try
+        {
+            // Chamada ao novo AuthController que criaste na API
+            var response = await Http.PostAsJsonAsync("api/auth/login-dev", _email);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+                if (result != null)
+                {
+                    await TokenProvider.SetTokenAsync(result.Token);
+                    Snackbar.Add("Autenticado com sucesso!", Severity.Success);
+                    NavManager.NavigateTo("/dashboard");
+                }
+            }
+            else
+            {
+                // Aqui entra a lógica do Gatekeeper (Whitelist)
+                Snackbar.Add("Acesso negado. O teu e-mail não está na Whitelist.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao ligar à API: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    public class LoginResponse { public string Token { get; set; } = ""; }
+}

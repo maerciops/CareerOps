@@ -1,6 +1,9 @@
 using CareerOps.Application;
 using CareerOps.Infrastructure;
 using CareerOps.Infrastructure.Middlewares;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +25,26 @@ builder.Services.AddCors(options =>
     });
 });
 
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("JWT Key is missing from configuration.");
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 // --- SEÇÃO DE MIDDLEWARES (Pipeline de Execução) ---
@@ -34,7 +57,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll"); 
+app.UseCors("AllowAll");
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

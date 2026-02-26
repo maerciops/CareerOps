@@ -1,20 +1,25 @@
 ﻿using CareerOps.Application.Common;
 using CareerOps.Application.DTOs;
 using CareerOps.Application.Interfaces;
+using CareerOps.Infrastructure.BackgroundJobs;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CareerOps.API.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 
 public class JobsController : ControllerBase
 {
     private readonly IJobService _jobService;
+    private readonly IAnalysisQueue _analysisQueue;
 
-    public JobsController(IJobService jobService)
+    public JobsController(IJobService jobService, IAnalysisQueue analysisQueue)
     {
         _jobService = jobService;
+        _analysisQueue = analysisQueue;
     }
 
     [HttpPost("{id}/analyze")]
@@ -60,12 +65,16 @@ public class JobsController : ControllerBase
     public async Task<IActionResult> UploadFile([FromRoute] Guid id, IFormFile file)
     {
         if (file == null || file.Length == 0) return BadRequest("Arquivo inválido.");
-
-        if (file.ContentType != "application/pdf") return BadRequest("Extensão do arquivo inválida.");
+        if (file.ContentType != "application/pdf") return BadRequest("Extensão inválida.");
 
         using var fileOpened = file.OpenReadStream();
-
         var result = await _jobService.UploadResumeAsync(id, fileOpened, file.FileName, file.ContentType);
+
+        if (result.IsSuccess)
+        {
+            // 🚀 O GATILHO: Coloca na fila para o AnalysisWorker pegar
+            await _analysisQueue.QueueAnalysisAsync(id);
+        }
 
         return ProcessResult(result);
     }

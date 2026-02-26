@@ -6,5 +6,6 @@
   <Project Path="CareerOps.API/CareerOps.API.csproj" />
   <Project Path="CareerOps.Application/CareerOps.Application.csproj" />
   <Project Path="CareerOps.Domain/CareerOps.Domain.csproj" />
+  <Project Path="CareerOps.Frontend/CareerOps.Frontend.csproj" />
   <Project Path="CareerOps.Infrastructure/CareerOps.Infrastructure.csproj" />
 </Solution>
