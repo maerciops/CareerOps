@@ -1,8 +1,7 @@
-﻿using CareerOps.Application.DTOs;
-using CareerOps.Frontend.Models;
+﻿using CareerOps.Application.Common;
+using CareerOps.Application.DTOs;
 using System.Net.Http.Json;
 using System.Text.Json;
-using static System.Net.WebRequestMethods;
 
 namespace CareerOps.Frontend.Services;
 
@@ -31,5 +30,45 @@ public class JobApiClient
         }
 
         return new List<JobApplicationResponse>();
+    }
+
+    public async Task UpdateJobAsync(Guid id, JobApplicationRequest request)
+    {
+        var response = await _httpClient.PutAsJsonAsync($"api/jobs/{id}", request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteJobAsync(Guid id)
+    {
+        Console.WriteLine($"api/jobs/{id}");
+        var response = await _httpClient.DeleteAsync($"api/jobs/{id}");
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<Result<JobApplicationResponse>> UploadResumeAsync(Guid jobId, Stream fileStream, string fileName)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(fileStream);
+
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            content.Add(fileContent, "file", fileName);
+
+            var response = await _httpClient.PostAsync($"api/jobs/{jobId}/reanalyze", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<JobApplicationResponse>();
+                return Result<JobApplicationResponse>.Success(result!);
+            }
+
+            var error = await response.Content.ReadAsStringAsync();
+            return Result<JobApplicationResponse>.Failure(error ?? "Erro ao processar re-análise.");
+        }
+        catch (Exception ex)
+        {
+            return Result<JobApplicationResponse>.Failure($"Erro de conexão: {ex.Message}");
+        }
     }
 }

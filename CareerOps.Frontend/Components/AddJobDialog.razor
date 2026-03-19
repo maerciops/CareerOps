@@ -4,9 +4,14 @@
 @using CareerOps.Application.DTOs
 @inject ISnackbar Snackbar
 @inject HttpClient Http
+@inject JobApiClient JobClient
 
 <MudDialog>
-    <TitleContent>Cadastrar Nova Oportunidade</TitleContent>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @( _isEdit ? "Editar Oportunidade" : "Cadastrar Nova Oportunidade" )
+        </MudText>
+    </TitleContent>
     <DialogContent>
         <MudStack Spacing="4">
             <MudTextField @bind-Value="_request.Company" Label="Empresa" Variant="Variant.Outlined" Required="true" />
@@ -44,10 +49,12 @@
 
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public JobApplicationResponse? JobToEdit { get; set; }
 
     private JobApplicationRequest _request = new();
     private IBrowserFile? _file;
     private bool _loading;
+    private bool _isEdit => JobToEdit != null;
 
     private void HandleFileSelected(IBrowserFile file) => _file = file;
     private void Cancel() => MudDialog.Cancel();
@@ -59,59 +66,72 @@
         !string.IsNullOrWhiteSpace(_request.URL) &&
         _file != null;
 
+
+    protected override void OnParametersSet()
+    {
+        if (_isEdit && JobToEdit != null)
+        {
+            // Mapeamento MANUAL dos dados para o formulário
+            _request.Company = JobToEdit.Company;
+            _request.JobTitle = JobToEdit.JobTitle;
+            _request.Description = JobToEdit.Description;
+            _request.URL = JobToEdit.URL;
+            _request.SalaryRange = JobToEdit.SalaryRange;
+            _request.ApplicationStatus = JobToEdit.ApplicationStatus;
+        }
+    }
+
     private async Task Submit()
     {
-        Console.WriteLine("1. Botão clicado!");
         _loading = true;
         StateHasChanged();
 
         try
         {
-            Console.WriteLine($"2. Tentando conectar em: {Http.BaseAddress}api/jobs");
-
-            // Timeout manual para não esperar a vida toda
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-            var createResponse = await Http.PostAsJsonAsync("api/jobs", _request, cts.Token);
-
-            Console.WriteLine($"3. Resposta recebida! Status: {createResponse.StatusCode}");
-
-            if (!createResponse.IsSuccessStatusCode)
+            if (_isEdit)
             {
-                var error = await createResponse.Content.ReadAsStringAsync();
-                Console.WriteLine($"4. Erro da API: {error}");
-                return;
+                await JobClient.UpdateJobAsync(JobToEdit!.Id, _request);
+                Snackbar.Add("Vaga atualizada com sucesso!", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
             }
-
-            var jobDto = await createResponse.Content.ReadFromJsonAsync<JobApplicationResponse>();
-            Console.WriteLine($"5. Guid recebido: {jobDto?.Id}");
-
-            if (jobDto != null && _file != null)
+            else
             {
-                Console.WriteLine("6. Iniciando Upload do PDF...");
+                // Timeout manual para não esperar a vida toda
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
-                using var content = new MultipartFormDataContent();
+                var createResponse = await Http.PostAsJsonAsync("api/jobs", _request, cts.Token);
 
-                var fileStream = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-                var fileContent = new StreamContent(fileStream);
-
-                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_file.ContentType);
-
-                content.Add(fileContent, "file", _file.Name);
-
-                var uploadResponse = await Http.PostAsync($"api/jobs/{jobDto.Id}/resume", content);
-
-                if (uploadResponse.IsSuccessStatusCode)
+                if (!createResponse.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("7. Upload concluído com sucesso!");
-                    Snackbar.Add("Vaga e Currículo enviados!", Severity.Success);
-                    MudDialog.Close(DialogResult.Ok(true));
+                    var error = await createResponse.Content.ReadAsStringAsync();
+                    return;
                 }
-                else
+
+                var jobDto = await createResponse.Content.ReadFromJsonAsync<JobApplicationResponse>();
+
+                if (jobDto != null && _file != null)
                 {
-                    var uploadError = await uploadResponse.Content.ReadAsStringAsync();
-                    Console.WriteLine($"ERRO NO UPLOAD: {uploadError}");
-                    Snackbar.Add("Vaga criada, mas falha ao subir PDF.", Severity.Warning);
+                    using var content = new MultipartFormDataContent();
+
+                    var fileStream = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                    var fileContent = new StreamContent(fileStream);
+
+                    fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(_file.ContentType);
+
+                    content.Add(fileContent, "file", _file.Name);
+
+                    var uploadResponse = await Http.PostAsync($"api/jobs/{jobDto.Id}/resume", content);
+
+                    if (uploadResponse.IsSuccessStatusCode)
+                    {
+                        Snackbar.Add("Vaga e Currículo enviados!", Severity.Success);
+                        MudDialog.Close(DialogResult.Ok(true));
+                    }
+                    else
+                    {
+                        var uploadError = await uploadResponse.Content.ReadAsStringAsync();
+                        Snackbar.Add("Vaga criada, mas falha ao subir PDF.", Severity.Warning);
+                    }
                 }
             }
         }
@@ -129,4 +149,5 @@
             StateHasChanged();
         }
     }
+
 }

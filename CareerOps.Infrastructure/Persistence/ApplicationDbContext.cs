@@ -1,77 +1,75 @@
 ﻿using CareerOps.Domain.Common;
 using CareerOps.Domain.Entities;
 using CareerOps.Domain.Interfaces;
-using CareerOps.Infrastructure.Auth;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 
 namespace CareerOps.Infrastructure.Persistence;
 
-public class ApplicationDbContext: DbContext
+public class ApplicationDbContext : DbContext
 {
     private readonly ICurrentUserService _currentUserService;
+
     public DbSet<JobApplication> Jobs { get; set; }
+    public DbSet<JobAnalysis> JobAnalysis { get; set; }
     public DbSet<UserQuota> UserQuotas { get; set; }
     public DbSet<InvitedUser> InvitedUser { get; set; }
 
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentUserService currentUserService) : base(options)
+    // Propriedade auxiliar para os filtros de consulta
+    public Guid CurrentUserId => _currentUserService.UserId;
+
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentUserService currentUserService)
+        : base(options)
     {
         _currentUserService = currentUserService;
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        var entradas = ChangeTracker.Entries<IEntidadeAuditavel>()
-            .Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
+        var now = DateTime.UtcNow;
+        var userId = _currentUserService.UserId;
 
-        foreach (var entrada in entradas)
+        foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
-            if (entrada.State == EntityState.Added)
+            switch (entry.State)
             {
-                entrada.Entity.CreatedAt = DateTime.UtcNow;
-            }
+                case EntityState.Added:
+                    entry.Entity.CreatedAt = now;
+                    entry.Entity.UpdatedAt = now;
 
-            if (entrada.State == EntityState.Modified && entrada.Entity.CreatedAt == DateTime.MinValue)
-            {
-                entrada.Entity.CreatedAt = DateTime.UtcNow;
-            }
+                    if (entry.Entity.OwnerId == Guid.Empty && userId != Guid.Empty)
+                    {
+                        entry.Entity.OwnerId = userId;
+                    }
+                    break;
 
-            entrada.Entity.UpdatedAt = DateTime.UtcNow;
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = now;
+                    break;
 
-            entrada.Property(p => p.UpdatedAt).IsModified = true;
-        }
-
-        foreach (var entry in ChangeTracker.Entries().Where(e => e.State == EntityState.Deleted))
-        {
-            // Se a entidade tem a Shadow Property "IsDeleted"
-            if (entry.Metadata.FindProperty("IsDeleted") != null)
-            {
-                entry.State = EntityState.Modified; // Muda de Deletar para Editar
-                entry.CurrentValues["IsDeleted"] = true; // Seta o flag
-            }
-        }
-
-        var entries = ChangeTracker.Entries<BaseEntity>()
-                .Where(e => e.State == EntityState.Added);
-
-        foreach (var entry in entries)
-        {
-            if (entry.Entity.OwnerId == Guid.Empty)
-            {
-                entry.Entity.OwnerId = _currentUserService.UserId;
+                case EntityState.Deleted:
+                    if (entry.Metadata.FindProperty("IsDeleted") != null)
+                    {
+                        entry.State = EntityState.Modified;
+                        entry.Property("IsDeleted").CurrentValue = true;
+                        entry.Entity.UpdatedAt = now;
+                    }
+                    break;
             }
         }
 
-        return base.SaveChangesAsync(cancellationToken);
+        return await base.SaveChangesAsync(cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<JobApplication>().Property<bool>("IsDeleted").HasDefaultValue(false);
-        modelBuilder.Entity<JobApplication>().HasQueryFilter(p => EF.Property<bool>(p, "IsDeleted") == false && p.OwnerId == _currentUserService.UserId);
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
-        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<JobApplication>()
+            .Property(j => j.SalaryRange)
+            .HasColumnType("decimal(18,2)");
 
         modelBuilder.Entity<InvitedUser>(entity =>
         {
@@ -81,24 +79,40 @@ public class ApplicationDbContext: DbContext
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            // Verifica se a classe herda de BaseEntity (ajuste o nome se for diferente)
+            // Filtra apenas entidades que herdam de BaseEntity
             if (typeof(BaseEntity).IsAssignableFrom(entityType.ClrType))
             {
-                modelBuilder.Entity(entityType.ClrType).HasIndex("OwnerId"); // Índice automático para performance
-
-                // Define o filtro global usando o ICurrentUserService
                 modelBuilder.Entity(entityType.ClrType)
-                    .HasQueryFilter(ConvertFilterExpression(entityType.ClrType));
+                    .Property<bool>("IsDeleted")
+                    .HasDefaultValue(false);
+
+                modelBuilder.Entity(entityType.ClrType).HasIndex("OwnerId");
+
+                var filter = CreateCombinedQueryFilter(entityType.ClrType);
+                modelBuilder.Entity(entityType.ClrType).HasQueryFilter(filter);
             }
         }
     }
 
-    private LambdaExpression ConvertFilterExpression(Type type)
+    private LambdaExpression CreateCombinedQueryFilter(Type type)
     {
-        var parameter = Expression.Parameter(type, "it");
-        var property = Expression.Property(parameter, "OwnerId");
-        var userId = Expression.Property(Expression.Constant(_currentUserService), nameof(_currentUserService.UserId));
-        var comparison = Expression.Equal(property, userId);
-        return Expression.Lambda(comparison, parameter);
+        var parameter = Expression.Parameter(type, "e");
+
+        var isDeletedProp = Expression.Call(
+            typeof(EF),
+            nameof(EF.Property),
+            new[] { typeof(bool) },
+            parameter,
+            Expression.Constant("IsDeleted"));
+        var isNotDeleted = Expression.Equal(isDeletedProp, Expression.Constant(false));
+
+        var ownerIdProp = Expression.Property(parameter, nameof(BaseEntity.OwnerId));
+
+        var dbContextProp = Expression.Property(Expression.Constant(this), nameof(CurrentUserId));
+        var isOwner = Expression.Equal(ownerIdProp, dbContextProp);
+
+        var combined = Expression.AndAlso(isNotDeleted, isOwner);
+
+        return Expression.Lambda(combined, parameter);
     }
 }

@@ -12,9 +12,8 @@ public class JobApplication : BaseEntity
     public decimal? SalaryRange { get; set; }
     public ApplicationStatus ApplicationStatus { get; set; } = ApplicationStatus.Applied;
     public string? ResumeURL { get; set; }
-    public string? AiAnalysisResult { get; set; }
-    public AnalysisStatus AnalysisStatus { get; private set; } = AnalysisStatus.None;
-    public string? AnalysisErrorMessage { get; private set; }
+
+    public virtual ICollection<JobAnalysis> Analyses { get; set; } = new List<JobAnalysis>();
 
     // Regras de negócio centralizadas e estáticas (carregadas uma única vez na memória)
     private static readonly Dictionary<ApplicationStatus, HashSet<ApplicationStatus>> NextStatusRules =
@@ -39,12 +38,6 @@ public class JobApplication : BaseEntity
 
         ApplicationStatus = nextStatus;
         UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void UpdateAnalysisStatus(AnalysisStatus status, string? errorMessage = null)
-    {
-        AnalysisStatus = status;
-        AnalysisErrorMessage = errorMessage;
     }
 
 }

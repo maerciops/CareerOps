@@ -1,0 +1,96 @@
+﻿@using CareerOps.Application.Interfaces
+@inject JobApiClient JobClient 
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Class="mr-3 mb-n1" />
+            Nova Versão do Currículo
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-4">
+            Suba uma versão ajustada para esta vaga. Isso consumirá 1 crédito de análise diária.
+        </MudText>
+
+        <MudFileUpload T="IBrowserFile" FilesChanged="HandleFileSelected" Class="mt-2">
+            <MudButton HtmlTag="label"
+                       Variant="Variant.Filled"
+                       Color="Color.Secondary"
+                       StartIcon="@Icons.Material.Filled.CloudUpload">
+                @(_file == null ? "Upload Currículo (PDF)" : _file.Name)
+            </MudButton>
+        </MudFileUpload>
+
+        @if (_file != null)
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3" Variant="Variant.Outlined">
+                Arquivo selecionado: <b>@_file.Name</b>
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Secondary" 
+                   Variant="Variant.Filled" 
+                   Disabled="@(_file == null || _loading)" 
+                   OnClick="Submit">
+            @if (_loading)
+            {
+                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ms-2">Processando...</MudText>
+            }
+            else
+            {
+                <MudText>Confirmar Re-análise</MudText>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid JobId { get; set; }
+
+    private IBrowserFile? _file;
+    private bool _loading = false;
+    private void HandleFileSelected(IBrowserFile file) => _file = file;
+
+    private void UploadFile(IBrowserFile file) => _file = file;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        if (_file == null) return;
+
+        _loading = true;
+        try
+        {
+            // Converte para Stream para o upload
+            using var stream = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024); // 10MB
+
+            // Chama o endpoint UploadResumeAsync que criamos no Service
+            var result = await JobClient.UploadResumeAsync(JobId, stream, _file.Name);
+
+            if (result.IsSuccess)
+            {
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                var msgError = result.Error == null ? "Erro inesperado ao tentar subir o arquivo pdf." : result.Error;
+                Snackbar.Add(msgError, Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Erro ao subir arquivo: " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

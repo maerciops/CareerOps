@@ -1,9 +1,13 @@
 ﻿using CareerOps.Application.Interfaces;
 using CareerOps.Domain.Enums;
 using CareerOps.Domain.Interfaces;
+using CareerOps.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 
 namespace CareerOps.Infrastructure.BackgroundJobs;
 
@@ -12,90 +16,102 @@ public class AnalysisWorker : BackgroundService
     private readonly IAnalysisQueue _queue;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AnalysisWorker> _logger;
-
+    private readonly AsyncRetryPolicy _retryPolicy;
     public AnalysisWorker(IAnalysisQueue queue, IServiceProvider serviceProvider, ILogger<AnalysisWorker> logger)
     {
         _queue = queue;
         _serviceProvider = serviceProvider;
         _logger = logger;
+
+        _retryPolicy = Policy
+            .Handle<Exception>()
+            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                (exception, timeSpan, retryCount, context) =>
+                {
+                    _logger.LogWarning($"[Polly] Tentativa {retryCount} falhou. Erro: {exception.Message}. Retentando em {timeSpan.TotalSeconds}s...");
+                });
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("🚀 AI Analysis Worker Started.");
+        _logger.LogInformation("🚀 AI Analysis Worker Started (1:N Resilience Mode).");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                // 1. QUEUE LISTENER (Outer Scope)
-                // If the app shuts down, this throws OperationCanceledException and gracefully exits.
-                var jobId = await _queue.DequeueAnalysisAsync(stoppingToken);
+                var analysisId = await _queue.DequeueAnalysisAsync(stoppingToken);
+                _logger.LogInformation($"[Worker] Processing AnalysisId: {analysisId}");
 
-                _logger.LogInformation($"[Worker] Picked up JobId: {jobId}");
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var storageService = scope.ServiceProvider.GetRequiredService<IStorageService>();
+                var pdfParser = scope.ServiceProvider.GetRequiredService<IPdfParserService>();
+                var analysisService = scope.ServiceProvider.GetRequiredService<IAnalysisService>();
 
-                // 2. JOB PROCESSOR (Inner Scope)
-                // We isolate the job processing so if Gemini crashes, the worker loop stays alive!
+                var analysis = await context.JobAnalysis
+                    .IgnoreQueryFilters()
+                    .Include(a => a.JobApplication)
+                    .FirstOrDefaultAsync(a => a.Id == analysisId, stoppingToken);
+
+                if (analysis == null)
+                {
+                    _logger.LogWarning($"[Worker] Analysis {analysisId} not found in database.");
+                    continue;
+                }
+
                 try
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    var jobRepository = scope.ServiceProvider.GetRequiredService<IJobRepository>();
-                    var storageService = scope.ServiceProvider.GetRequiredService<IStorageService>();
-                    var pdfParser = scope.ServiceProvider.GetRequiredService<IPdfParserService>();
-                    var analysisService = scope.ServiceProvider.GetRequiredService<IAnalysisService>();
+                    analysis.UpdateAnalysisStatus(AnalysisStatus.Processing);
+                    await context.SaveChangesAsync(stoppingToken);
 
-                    var job = await jobRepository.GetJobByIdAsync(jobId);
-                    if (job == null) continue;
-
-                    if (string.IsNullOrEmpty(job.ResumeURL))
+                    var finalAiResult = await _retryPolicy.ExecuteAsync(async () =>
                     {
-                        _logger.LogWarning($"[Worker] JobId: {jobId} aborted. ResumeURL is missing.");
-                        job.UpdateAnalysisStatus(AnalysisStatus.Failed, "Falha no sistema: O link do currículo foi perdido.");
-                        await jobRepository.UpdateJobAsync(job);
-                        continue;
-                    }
+                        _logger.LogInformation($"[Worker] Attempting AI Analysis for AnalysisId: {analysisId}");
 
-                    job.UpdateAnalysisStatus(AnalysisStatus.Processing);
-                    await jobRepository.UpdateJobAsync(job);
+                        var bytesPdf = await storageService.GetFileBytesAsync(analysis.ResumeUrl);
+                        var resumeText = await pdfParser.ExtractTextFromPdfAsync(bytesPdf);
+                        var jobDescription = analysis.JobApplication?.Description ?? string.Empty;
 
-                    // --- THE HEAVY LIFTING ---
-                    var bytesPdf = await storageService.GetFileBytesAsync(job.ResumeURL);
-                    var resumeText = await pdfParser.ExtractTextFromPdfAsync(bytesPdf);
-                    var jobDescription = job.Description ?? string.Empty;
+                        return await analysisService.AnalyzeJobCompatibilityAsync(jobDescription, resumeText);
+                    });
 
-                    var aiResult = await analysisService.AnalyzeJobCompatibilityAsync(jobDescription, resumeText);
-
-                    // --- SUCCESS ---
-                    job.AiAnalysisResult = aiResult;
-                    job.UpdateAnalysisStatus(AnalysisStatus.Completed);
-                    await jobRepository.UpdateJobAsync(job);
-
-                    _logger.LogInformation($"[Worker] Successfully completed JobId: {jobId}");
+                    // --- SUCESSO ---
+                    analysis.AiAnalysisResult = finalAiResult;
+                    analysis.UpdateAnalysisStatus(AnalysisStatus.Completed);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"[Worker] AI Analysis failed for JobId: {jobId}");
+                    _logger.LogError(ex, $"[Worker] Final failure for AnalysisId: {analysisId}");
 
-                    using var failScope = _serviceProvider.CreateScope();
-                    var fallbackRepo = failScope.ServiceProvider.GetRequiredService<IJobRepository>();
+                    var friendlyError = MapToFriendlyError(ex.Message);
 
-                    var failedJob = await fallbackRepo.GetJobByIdAsync(jobId);
-                    if (failedJob != null)
-                    {
-                        failedJob.UpdateAnalysisStatus(AnalysisStatus.Failed, "Erro na comunicação com a inteligência artificial. Tente novamente.");
-                        await fallbackRepo.UpdateJobAsync(failedJob);
-                    }
+                    analysis.UpdateAnalysisStatus(AnalysisStatus.Failed, friendlyError);
                 }
+
+                await context.SaveChangesAsync(stoppingToken);
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            catch (OperationCanceledException) { break; }
             catch (Exception criticalEx)
             {
-                // The queue itself crashed. Extremely rare.
-                _logger.LogCritical(criticalEx, "[Worker] Fatal error in the background queue listener.");
+                _logger.LogCritical(criticalEx, "[Worker] Fatal error in loop listener.");
             }
         }
+    }
+
+    private string MapToFriendlyError(string rawError)
+    {
+        if (string.IsNullOrWhiteSpace(rawError))
+            return "Ocorreu um erro inesperado ao processar a análise.";
+
+        return rawError switch
+        {
+            var e when e.Contains("API_KEY_INVALID") => "Falha na autenticação com o provedor de IA. Por favor, verifique as configurações do sistema.",
+            var e when e.Contains("429") || e.Contains("QUOTA_EXCEEDED") => "O limite de requisições da IA foi atingido. Tente novamente em alguns minutos.",
+            var e when e.Contains("SAFETY") => "O conteúdo do arquivo foi bloqueado pelos filtros de segurança da IA.",
+            var e when e.Contains("BadRequest") || e.Contains("400") => "Houve um problema com os dados enviados para análise (descrição ou currículo inválidos).",
+            var e when e.Contains("ServiceUnavailable") || e.Contains("503") => "O serviço de IA está temporariamente indisponível. Estamos tentando restabelecer.",
+            _ => "Não foi possível completar a análise após múltiplas tentativas. Verifique seu currículo e tente novamente."
+        };
     }
 }

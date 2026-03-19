@@ -9,4 +9,6 @@ public interface IJobRepository
     Task InsertJobAsync(JobApplication job);
     Task UpdateJobAsync(JobApplication job);
     Task DeleteJobAsync(JobApplication job);
+    Task<JobAnalysis> AddAnalysisAsync(Guid jobId, string resumeUrl);
+    Task<Guid> UpdateResumeAndAddAnalysisAsync(Guid jobId, string newResumeUrl);
 }

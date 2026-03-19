@@ -1,7 +1,7 @@
 ﻿using CareerOps.Application.Common;
 using CareerOps.Application.DTOs;
 using CareerOps.Application.Interfaces;
-using CareerOps.Infrastructure.BackgroundJobs;
+using CareerOps.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,6 +28,17 @@ public class JobsController : ControllerBase
         var result = await _jobService.AnalyzeJobAsync(id);
 
         return ProcessResult(result);
+    }
+
+    [HttpPost("{id}/reanalyze")]
+    public async Task<ActionResult<JobApplicationResponse>> Reanalyze(Guid id, IFormFile file)
+    {
+        using var stream = file.OpenReadStream();
+        var result = await _jobService.UploadResumeAsync(id, stream, file.FileName, file.ContentType);
+
+        if (!result.IsSuccess) return BadRequest(result.Error);
+
+        return Ok(result.Value);
     }
 
     [HttpPost]
@@ -82,6 +93,7 @@ public class JobsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete([FromRoute] Guid id)
     {
+        Console.WriteLine("id da vaga: " + id);
         var result = await _jobService.DeleteJobAsync(id);
 
         return ProcessResult(result);

@@ -8,4 +8,5 @@ public class UpdateJobRequest
     public string? URL { get; set; }
     public string? ResumeURL { get; set; }
     public decimal? SalaryRange { get; set; }
+    public string? ApplicationStatus { get; set; }
 }

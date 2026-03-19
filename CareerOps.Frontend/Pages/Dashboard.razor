@@ -5,6 +5,7 @@
 @inject JobApiClient JobClient
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@implements IDisposable
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8">
     @* O Cabeçalho e o Botão devem ficar FORA dos IFs de carregamento *@
@@ -28,7 +29,7 @@
     else if (_jobs == null || !_jobs.Any())
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">
-            Ainda não registaste nenhuma vaga. Clica em "Nova Vaga" para começar!
+            Ainda não registraste nenhuma vaga. Clica em "Nova Vaga" para começar!
         </MudAlert>
     }
     else
@@ -53,15 +54,28 @@
                     <CellTemplate>
                         @{
                             var status = context.Item.AnalysisStatus;
+                            var errorMsg = context.Item.AnalysisErrorMessage; // Pega a nova prop
                             var color = status switch
                             {
-                                    "Completed" => Color.Success,
-                                    "Processing" => Color.Warning,
-                                    "Failed" => Color.Error,
+                                "Completed" => Color.Success,
+                                "Processing" => Color.Warning,
+                                "Failed" => Color.Error,
                                 _ => Color.Default
                             };
                         }
-                        <MudChip T="string" Size="Size.Small" Color="@color">@status</MudChip>
+
+                        @if (status == "Failed" && !string.IsNullOrEmpty(errorMsg))
+                        {
+                            <MudTooltip Text="@errorMsg">
+                                <MudChip T="string" Size="Size.Small" Color="@color" Icon="@Icons.Material.Filled.Error">
+                                    @status
+                                </MudChip>
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="@color">@status</MudChip>
+                        }
                     </CellTemplate>
                 </TemplateColumn>
 
@@ -69,16 +83,38 @@
                 <TemplateColumn Title="Ações" CellClass="d-flex justify-end">
                     <CellTemplate>
                         <MudIconButton Icon="@Icons.Material.Filled.AutoFixHigh"
-                                       Size="Size.Small"
-                                       Color="Color.Primary"
-                                       OnClick="@(() => ShowAnalysis(context.Item))"
-                                       Disabled="@(context.Item.AnalysisStatus != "Completed")"
-                                       Title="Ver Análise da IA" />
+                                                       Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       OnClick="@(() => ShowAnalysis(context.Item))"
+                                                       Disabled="@(context.Item.AnalysisStatus != "Completed")"
+                                                       Title="Ver Análise da IA" />
 
                         <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                                       Size="Size.Small"
+                                                       Color="Color.Info"
+                                                       Title="Ver Detalhes" />
+
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                        Size="Size.Small"
                                        Color="Color.Info"
-                                       Title="Ver Detalhes" />
+                                       OnClick="@(() => OpenEditJobDialog(context.Item))"
+                                       Title="Editar Dados da Vaga" />
+
+                        <MudTooltip Text="Subir nova versão do currículo">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                           Color="Color.Secondary"
+                                           OnClick="@(() => OpenReanalysisDialog(context.Item.Id))" />
+                        </MudTooltip>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="Gestão">
+                    <CellTemplate>
+                        @* Botão Funcional de Exclusão *@
+                        <button @onclick="@(() => ConfirmDelete(context.Item.Id))"
+                                style="color:red; background:none; border:1px solid red; padding:2px 5px; cursor:pointer;">
+                            Excluir
+                        </button>
                     </CellTemplate>
                 </TemplateColumn>
             </Columns>
@@ -136,7 +172,7 @@
     }
 </MudContainer>
 
-@code {
+    @code {
     private IEnumerable<JobApplicationResponse>? _jobs;
     private bool _loading = true;
     private bool _drawerOpen;
@@ -154,14 +190,68 @@
         StateHasChanged();
     }
 
+    private async Task OpenReanalysisDialog(Guid jobId)
+    {
+        var parameters = new DialogParameters { ["JobId"] = jobId };
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small };
+
+        // Aqui você pode criar um diálogo simples apenas com o MudFileUpload
+        var dialog = await DialogService.ShowAsync<ReanalysisUploadDialog>("Re-analisar Vaga", parameters, options);
+        var result = await dialog.Result;
+
+            if (result is { Canceled: false })
+            {
+                Snackbar.Add("Nova análise iniciada!", Severity.Info);
+                await RefreshJobsList(); // Recarrega a lista para mostrar os dados novos
+            }
+    }
+
+    private async Task ConfirmDelete(Guid id)
+    {
+        // Usando o Snackbar para notificação simples
+        try
+        {
+            Console.WriteLine($"Disparando DELETE para o ID: {id}");
+            await JobClient.DeleteJobAsync(id);
+            Snackbar.Add("Vaga removida com sucesso.", Severity.Success);
+
+            // Atualiza a lista local para refletir a exclusão
+            await RefreshJobsList();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao excluir: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OpenEditJobDialog(JobApplicationResponse job)
+    {
+        var parameters = new DialogParameters<AddJobDialog>
+        {
+            { x => x.JobToEdit, job } // Passamos a vaga selecionada para o parâmetro que criamos no AddJobDialog
+        };
+
+        Console.WriteLine("Atribuiu Params");
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
+        var dialog = await DialogService.ShowAsync<AddJobDialog>("Editar Vaga", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            await RefreshJobsList(); // Recarrega a lista para mostrar os dados novos
+        }
+    }
+
     private async Task RefreshJobsList()
     {
         try
         {
-            // 1. Buscamos os dados do Client
+            //1. Buscamos os dados do Client
             var result = await JobClient.GetJobsAsync();
 
-            // 2. Atribuímos à variável local
+            //2. Atribuímos à variável local
             _jobs = result?.ToList() ?? new List<JobApplicationResponse>();
 
             Console.WriteLine($"Dashboard recebeu: {_jobs.Count()} vagas.");
@@ -201,21 +291,29 @@
 
     private System.Threading.Timer? _timer;
 
+    private bool _isRefreshing = false;
+
     protected override void OnInitialized()
     {
-        // Inicia um timer que roda a cada 5 segundos
         _timer = new System.Threading.Timer(async _ =>
         {
+            if (_isRefreshing) return;
+
             await InvokeAsync(async () =>
             {
-                // Só atualiza se houver algo sendo processado para economizar recursos
-                if (_jobs?.Any(j => j.AnalysisStatus == "Processing" || j.AnalysisStatus == "Pending") ?? false)
+                // 2. Só consulta se houver algo que PODE mudar de status
+                var hasPendingJobs = _jobs?.Any(j =>
+                    (j.AnalysisStatus?.Equals("Processing", StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (j.AnalysisStatus?.Equals("Pending", StringComparison.OrdinalIgnoreCase) ?? false)) ?? false;
+
+                if (hasPendingJobs)
                 {
+                    _isRefreshing = true;
                     await RefreshJobsList();
-                    StateHasChanged();
+                    _isRefreshing = false;
                 }
             });
-        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)); 
     }
 
     public void Dispose()

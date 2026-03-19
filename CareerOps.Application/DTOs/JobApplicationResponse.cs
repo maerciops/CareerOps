@@ -14,5 +14,6 @@ public class JobApplicationResponse
     public string? AnalysisStatus { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public string? AnalysisErrorMessage { get; set; }
 
 }

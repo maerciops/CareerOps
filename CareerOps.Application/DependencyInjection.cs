@@ -1,4 +1,5 @@
-﻿using CareerOps.Application.Interfaces;
+﻿using AutoMapper;
+using CareerOps.Application.Interfaces;
 using CareerOps.Application.Services;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,7 +13,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IJobService, JobService>();
         services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
-        services.AddAutoMapper(Assembly.GetExecutingAssembly());
+        services.AddAutoMapper(cfg => { }, typeof(MappingProfile));
         return services;
     }
 }

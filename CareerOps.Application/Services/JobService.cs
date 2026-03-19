@@ -1,11 +1,12 @@
-﻿using CareerOps.Application.Common;
+﻿using AutoMapper;
+using CareerOps.Application.Common;
 using CareerOps.Application.DTOs;
 using CareerOps.Application.Interfaces;
 using CareerOps.Domain.Entities;
-using CareerOps.Domain.Interfaces;
-using AutoMapper;
-using FluentValidation;
 using CareerOps.Domain.Enums;
+using CareerOps.Domain.Exceptions;
+using CareerOps.Domain.Interfaces;
+using FluentValidation;
 
 namespace CareerOps.Application.Services;
 
@@ -49,27 +50,19 @@ public class JobService : IJobService
     public async Task<Result<JobApplicationResponse>> AnalyzeJobAsync(Guid id)
     {
         var job = await _jobRepository.GetJobByIdAsync(id);
+
         if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
-        if (string.IsNullOrEmpty(job.ResumeURL)) return "Nenhum currículo foi anexado a esta vaga. Faça o upload antes de analisar.";
 
-        var userId = _currentUserService.UserId;
-        var quota = await _userQuotaRepository.GetByOwnerIdAsync(userId);
-        if (quota == null)
-        {
-            quota = new UserQuota(userId, 5);
-            _userQuotaRepository.Add(quota);
-        }
-        quota.ConsumeAnalysis();
+        if (string.IsNullOrEmpty(job.ResumeURL)) return "Nenhum currículo anexado a esta vaga.";
 
-        job.UpdateAnalysisStatus(AnalysisStatus.Pending);
+        var quotaResult = await _userQuotaRepository.ConsumeQuotaAsync(_currentUserService.UserId);
 
-        await _userQuotaRepository.SaveChangesAsync();
-        await _jobRepository.UpdateJobAsync(job);
+        if (!quotaResult.IsSuccess) return quotaResult.Error!;
 
-        await _analysisQueue.QueueAnalysisAsync(job.Id);
+        var analysis = await _jobRepository.AddAnalysisAsync(job.Id, job.ResumeURL);
+        await _analysisQueue.QueueAnalysisAsync(analysis.Id);
 
-        var response = _mapper.Map<JobApplicationResponse>(job);
-        return Result<JobApplicationResponse>.Success(response);
+        return Result<JobApplicationResponse>.Success(_mapper.Map<JobApplicationResponse>(job));
     }
 
     public async Task<Result<JobApplicationResponse>> CreateJobAsync(JobApplicationRequest request)
@@ -100,11 +93,9 @@ public class JobService : IJobService
 
     public async Task<Result<IEnumerable<JobApplicationResponse>>> GetAllJobsAsync()
     {
+        // O repositório já deve retornar a Job com as Analyses incluídas (Eager Loading interno)
         var jobs = await _jobRepository.GetAllJobsAsync(_currentUserService.UserId);
-
-        var response = _mapper.Map<IEnumerable<JobApplicationResponse>>(jobs);
-
-        return Result<IEnumerable<JobApplicationResponse>>.Success(response);
+        return Result<IEnumerable<JobApplicationResponse>>.Success(_mapper.Map<IEnumerable<JobApplicationResponse>>(jobs));
     }
 
     public async Task<Result<JobApplicationResponse>> GetJobByIdAsync(Guid id)
@@ -140,22 +131,50 @@ public class JobService : IJobService
     public async Task<Result<JobApplicationResponse>> UploadResumeAsync(Guid jobId, Stream fileStream, string fileName, string contentType = "application/pdf")
     {
         var job = await _jobRepository.GetJobByIdAsync(jobId);
+        if (job == null) return "Job não encontrado.";
 
-        if (job == null || job.OwnerId != _currentUserService.UserId) return "Job não encontrado.";
+        var newResumeUrl = await _azureStorageService.UploadFileAsync(fileStream, fileName, contentType);
 
-        var resumeUrl = await _azureStorageService.UploadFileAsync(fileStream, fileName, contentType);
+        var newAnalysisId = await _jobRepository.UpdateResumeAndAddAnalysisAsync(job.Id, newResumeUrl);
 
-        job.ResumeURL = resumeUrl;
+        if (newAnalysisId != Guid.Empty)
+        {
+            await _analysisQueue.QueueAnalysisAsync(newAnalysisId);
+        }
 
-        await _jobRepository.UpdateJobAsync(job);
+        job.ResumeURL = newResumeUrl;
 
-        var response = _mapper.Map<JobApplicationResponse>(job);
-
-        return Result<JobApplicationResponse>.Success(response);
+        return Result<JobApplicationResponse>.Success(_mapper.Map<JobApplicationResponse>(job));
     }
 
     private string FormatErrors(FluentValidation.Results.ValidationResult listErrors)
     {
         return string.Join(" | ", listErrors.Errors.Select(e => e.ErrorMessage));
+    }
+
+    private async Task<Result> HandleQuotaAsync()
+    {
+        var userId = _currentUserService.UserId;
+        var quota = await _userQuotaRepository.GetByOwnerIdAsync(userId);
+
+        if (quota == null)
+        {
+            quota = new UserQuota(userId, 5); // Cria a quota padrão
+            _userQuotaRepository.Add(quota);
+        }
+
+        try
+        {
+            // A própria entidade valida e lança QuotaExceededDomainException se falhar
+            quota.ConsumeAnalysis();
+
+            await _userQuotaRepository.SaveChangesAsync();
+            return Result.Success();
+        }
+        catch (QuotaExceededDomainException ex)
+        {
+            // Captura a regra de negócio da entidade e retorna como falha amigável
+            return Result.Failure(ex.Message);
+        }
     }
 }
